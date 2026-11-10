@@ -589,13 +589,19 @@ function App() {
 
 /* ---------------- OVERVIEW ---------------- */
 
+
 function Overview() {
     const [stats, setStats] = useState({
         products: 0,
         orders: 0,
         customers: 0,
-        invoices: 0
+        invoices: 0,
+        totalRevenue: 0,
+        paidRevenue: 0,
+        pendingOrders: 0,
+        recentOrders: []
     });
+
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
 
@@ -609,39 +615,42 @@ function Overview() {
                     'products',
                     'orders',
                     'customers',
-                    'invoices'
+                    'invoices',
+                    'dashboard-stats'
                 ];
 
                 const results = await Promise.all(
                     endpoints.map(async (endpoint) => {
                         const response = await authenticatedRequest(
-                            `${API}/stores/${STORE_ID}/${endpoint}`,
-                            { headers: { Accept: 'application/json' } }
+                            `${API}/stores/${STORE_ID}/${endpoint}`
                         );
 
                         const result = await response.json();
 
                         if (!response.ok) {
                             throw new Error(
-                                result.message || `Unable to load ${endpoint}.`
+                                result.message ||
+                                `Unable to load ${endpoint}.`
                             );
                         }
 
-                        // The current Laravel APIs return their records in "data".
-                        // This also supports APIs that return a plain array.
                         return Array.isArray(result)
                             ? result
-                            : result.data || result.products ||
-                              result.orders || result.customers ||
-                              result.invoices || [];
+                            : result.data || [];
                     })
                 );
+
+                const dashboard = results[4];
 
                 setStats({
                     products: results[0].length,
                     orders: results[1].length,
                     customers: results[2].length,
-                    invoices: results[3].length
+                    invoices: results[3].length,
+                    totalRevenue: Number(dashboard.total_revenue || 0),
+                    paidRevenue: Number(dashboard.paid_revenue || 0),
+                    pendingOrders: Number(dashboard.pending_orders || 0),
+                    recentOrders: dashboard.recent_orders || []
                 });
             } catch (error) {
                 console.error('Dashboard statistics error:', error);
@@ -655,6 +664,13 @@ function Overview() {
 
         loadDashboardStats();
     }, []);
+
+    const formatCurrency = (amount) =>
+        new Intl.NumberFormat('en-IN', {
+            style: 'currency',
+            currency: 'INR',
+            maximumFractionDigits: 2
+        }).format(amount);
 
     const statsCards = [
         { label: 'Total Products', value: stats.products },
@@ -675,7 +691,10 @@ function Overview() {
             <h3 className="section-title">Store Overview</h3>
 
             {message && (
-                <p role="status" style={{ color: '#b42318', marginBottom: '14px' }}>
+                <p role="alert" style={{
+                    color: '#b42318',
+                    marginBottom: '14px'
+                }}>
                     {message}
                 </p>
             )}
@@ -689,14 +708,87 @@ function Overview() {
                 ))}
             </div>
 
+            <h3 className="section-title" style={{ marginTop: '28px' }}>
+                Business Performance
+            </h3>
+
+            <div className="stats-grid">
+                <div className="stat-card">
+                    <span>Total Revenue</span>
+                    <h2>
+                        {loading ? '...' : formatCurrency(stats.totalRevenue)}
+                    </h2>
+                    <small>Excluding cancelled orders</small>
+                </div>
+
+                <div className="stat-card">
+                    <span>Paid Revenue</span>
+                    <h2>
+                        {loading ? '...' : formatCurrency(stats.paidRevenue)}
+                    </h2>
+                    <small>Successfully paid orders</small>
+                </div>
+
+                <div className="stat-card">
+                    <span>Pending Orders</span>
+                    <h2>{loading ? '...' : stats.pendingOrders}</h2>
+                    <small>Awaiting order processing</small>
+                </div>
+            </div>
+
+            <h3 className="section-title" style={{ marginTop: '28px' }}>
+                Recent Orders
+            </h3>
+
+            {loading ? (
+                <p>Loading recent orders...</p>
+            ) : stats.recentOrders.length === 0 ? (
+                <p>No orders found yet.</p>
+            ) : (
+                <div className="recent-orders-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Order ID</th>
+                                <th>Customer</th>
+                                <th>Amount</th>
+                                <th>Order Status</th>
+                                <th>Payment Status</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {stats.recentOrders.map((order) => (
+                                <tr key={order.id}>
+                                    <td>{order.order_number}</td>
+                                    <td>{order.customer_name}</td>
+                                    <td>
+                                        {formatCurrency(
+                                            Number(order.total_amount)
+                                        )}
+                                    </td>
+                                    <td>{order.order_status}</td>
+                                    <td>{order.payment_status}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
             {!loading && (
-                <p style={{ color: '#687386', fontSize: '13px', marginTop: '12px' }}>
-                    Dashboard statistics are based on the current store records.
+                <p style={{
+                    color: '#687386',
+                    fontSize: '13px',
+                    marginTop: '12px'
+                }}>
+                    Statistics are calculated from this store's records.
                 </p>
             )}
         </section>
     );
 }
+
 
 /* ---------------- MY STORE ---------------- */
 

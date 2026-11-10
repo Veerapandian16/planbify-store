@@ -8,6 +8,7 @@ use App\Models\Order;
 use App\Models\Store;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Barryvdh\DomPDF\Facade\Pdf;
 
@@ -26,12 +27,12 @@ class InvoiceController extends Controller
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            $existingInvoice = Invoice::where('store_id', $store->id)
+            $invoice = Invoice::where('store_id', $store->id)
                 ->where('order_id', $order->id)
                 ->first();
 
-            if ($existingInvoice) {
-                return $existingInvoice->load('items', 'order');
+            if ($invoice) {
+                return $invoice->load('items', 'order');
             }
 
             $invoice = Invoice::create([
@@ -72,9 +73,12 @@ class InvoiceController extends Controller
             return $invoice->load('items', 'order');
         });
 
+        // Generate and persist PDF if it does not exist
+        $this->ensurePdfExists($invoice, $store);
+
         return response()->json([
-            'message' => 'Invoice retrieved or generated successfully.',
-            'data' => $invoice,
+            'message' => 'Invoice generated and PDF stored successfully.',
+            'data' => $invoice->fresh()->load('items', 'order'),
         ], 200);
     }
 
@@ -110,7 +114,7 @@ class InvoiceController extends Controller
         ]);
     }
 
-    // Download invoice PDF - store owner only
+    // Download stored invoice PDF - store owner only
     public function downloadPdf(Request $request, $storeId, $invoiceId)
     {
         $store = $this->ownedStore($request, $storeId);
@@ -120,14 +124,44 @@ class InvoiceController extends Controller
             ->with(['order', 'items'])
             ->firstOrFail();
 
+        $path = $this->ensurePdfExists($invoice, $store);
+
+        return Storage::disk('local')->download(
+            $path,
+            $invoice->invoice_number . '.pdf',
+            ['Content-Type' => 'application/pdf']
+        );
+    }
+
+    // Generate and save PDF if missing
+    private function ensurePdfExists(Invoice $invoice, Store $store): string
+    {
+        $disk = Storage::disk('local');
+
+        if (
+            $invoice->pdf_path &&
+            $disk->exists($invoice->pdf_path)
+        ) {
+            return $invoice->pdf_path;
+        }
+
+        $invoice->loadMissing('order', 'items');
+
         $pdf = Pdf::loadView('invoices.pdf', [
             'invoice' => $invoice,
             'store' => $store,
         ])->setPaper('a4', 'portrait');
 
-        $filename = $invoice->invoice_number . '.pdf';
+        $path = 'invoices/' . $invoice->store_id . '/'
+            . $invoice->invoice_number . '.pdf';
 
-        return $pdf->download($filename);
+        $disk->put($path, $pdf->output());
+
+        $invoice->update([
+            'pdf_path' => $path,
+        ]);
+
+        return $path;
     }
 
     // Verify that the authenticated user owns the requested store

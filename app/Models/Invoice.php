@@ -22,6 +22,7 @@ class Invoice extends Model
         'shipping_amount',
         'total_amount',
         'payment_status',
+        'pdf_path',
     ];
 
     protected $casts = [

@@ -78,6 +78,11 @@ Route::middleware('auth:sanctum')->group(function () {
         '/stores/{storeId}/products/{productId}/images',
         [ProductController::class, 'uploadImages']
     );
+    // DASHBOARD STATISTICS
+    Route::get(
+        '/stores/{storeId}/dashboard-stats',
+        [OrderController::class, 'dashboardStats']
+    );
 
 
     // ORDER MANAGEMENT

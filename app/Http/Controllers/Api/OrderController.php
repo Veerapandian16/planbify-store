@@ -240,6 +240,54 @@ class OrderController extends Controller
         ], 201);
     }
 
+    // Dashboard statistics - authenticated store owner only
+    public function dashboardStats(Request $request, $storeId)
+    {
+        $store = $this->ownedStore($request, $storeId);
+
+        $orders = Order::where('store_id', $store->id);
+
+        $totalRevenue = (clone $orders)
+            ->where('order_status', '!=', 'cancelled')
+            ->sum('total_amount');
+
+        $paidRevenue = (clone $orders)
+            ->where('order_status', '!=', 'cancelled')
+            ->where('payment_status', 'paid')
+            ->sum('total_amount');
+
+        $pendingOrders = (clone $orders)
+            ->where('order_status', 'pending')
+            ->count();
+
+        $recentOrders = (clone $orders)
+            ->with('customer')
+            ->latest()
+            ->limit(5)
+            ->get([
+                'id',
+                'store_id',
+                'order_number',
+                'customer_id',
+                'customer_name',
+                'total_amount',
+                'order_status',
+                'payment_status',
+                'created_at',
+            ]);
+
+        return response()->json([
+            'message' => 'Dashboard statistics retrieved successfully.',
+            'data' => [
+                'total_revenue' => round((float) $totalRevenue, 2),
+                'paid_revenue' => round((float) $paidRevenue, 2),
+                'pending_orders' => $pendingOrders,
+                'recent_orders' => $recentOrders,
+            ],
+        ], 200);
+    }
+
+
     // GET ALL ORDERS - STORE OWNER ONLY
     public function index(Request $request, $storeId)
     {

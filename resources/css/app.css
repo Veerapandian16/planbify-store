@@ -416,3 +416,45 @@ body {
         padding: 16px;
     }
 }
+/* Dashboard - Recent Orders Table */
+.recent-orders-table {
+    width: 100%;
+    overflow-x: auto;
+    margin-top: 15px;
+    border: 1px solid #e5e8ee;
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.recent-orders-table table {
+    width: 100%;
+    min-width: 750px;
+    border-collapse: collapse;
+}
+
+.recent-orders-table th,
+.recent-orders-table td {
+    padding: 15px 18px;
+    text-align: left;
+    border-bottom: 1px solid #e5e8ee;
+    font-size: 14px;
+    white-space: nowrap;
+}
+
+.recent-orders-table th {
+    background: #f5f7fa;
+    color: #34445c;
+    font-weight: 600;
+}
+
+.recent-orders-table td {
+    color: #444444;
+}
+
+.recent-orders-table tbody tr:hover {
+    background: #f8f9fc;
+}
+
+.recent-orders-table tbody tr:last-child td {
+    border-bottom: none;
+}
