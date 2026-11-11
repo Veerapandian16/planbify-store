@@ -142,6 +142,8 @@ function CreateStore({ user, onStoreCreated, onLogout }) {
 
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [logoFile, setLogoFile] = useState(null);
+    const [bannerFile, setBannerFile] = useState(null);
 
     function handleChange(event) {
         const { name, value, type, checked } = event.target;
@@ -176,7 +178,33 @@ function CreateStore({ user, onStoreCreated, onLogout }) {
                 );
             }
 
-            onStoreCreated(result.data);
+            const createdStore = result.data;
+
+            // Store creation and image upload use separate backend endpoints.
+            if (logoFile || bannerFile) {
+                const imageData = new FormData();
+                if (logoFile) imageData.append('logo', logoFile);
+                if (bannerFile) imageData.append('banner', bannerFile);
+
+                try {
+                    const imageResponse = await authenticatedRequest(
+                        `${API}/stores/${createdStore.id}/images`,
+                        { method: 'POST', body: imageData }
+                    );
+                    const imageResult = await imageResponse.json();
+                    if (!imageResponse.ok) {
+                        const validationMessage = imageResult.errors
+                            ? Object.values(imageResult.errors).flat().join(' ')
+                            : imageResult.message;
+                        throw new Error(validationMessage || 'Store created, but image upload failed.');
+                    }
+                    createdStore.logo = imageResult.data?.logo || createdStore.logo;
+                    createdStore.banner = imageResult.data?.banner || createdStore.banner;
+                } catch (imageError) {
+                    window.alert(`Your store was created, but the images could not be uploaded. You can upload them later from My Store.\n${imageError.message}`);
+                }
+            }
+            onStoreCreated(createdStore);
         } catch (err) {
             setError(err.message);
         } finally {
@@ -311,6 +339,20 @@ function CreateStore({ user, onStoreCreated, onLogout }) {
                             rows="3"
                             placeholder="Describe your business"
                         />
+                    </div>
+
+                    <div className="form-group">
+                        <label>Store Logo (JPG, PNG, WebP — maximum 2 MB)</label>
+                        <input type="file" accept="image/jpeg,image/png,image/webp"
+                            onChange={(event) => setLogoFile(event.target.files?.[0] || null)} />
+                        {logoFile && <small>Selected: {logoFile.name}</small>}
+                    </div>
+
+                    <div className="form-group">
+                        <label>Store Banner (JPG, PNG, WebP — maximum 5 MB)</label>
+                        <input type="file" accept="image/jpeg,image/png,image/webp"
+                            onChange={(event) => setBannerFile(event.target.files?.[0] || null)} />
+                        {bannerFile && <small>Selected: {bannerFile.name}</small>}
                     </div>
 
                     <div className="form-group">
@@ -794,145 +836,139 @@ function Overview() {
 
 function MyStore() {
     const [store, setStore] = useState({
-        business_name: '',
-        store_name: '',
-        owner_name: '',
-        email: '',
-        phone: '',
-        whatsapp_number: '',
-        business_address: '',
-        business_state: '',
-        description: '',
-        is_active: true
+        business_name: '', store_name: '', owner_name: '', email: '', phone: '',
+        whatsapp_number: '', business_address: '', business_state: '',
+        description: '', is_active: true, logo: null, banner: null
     });
-
     const [message, setMessage] = useState('');
     const [loading, setLoading] = useState(true);
+    const [logoFile, setLogoFile] = useState(null);
+    const [bannerFile, setBannerFile] = useState(null);
+    const [uploadingImages, setUploadingImages] = useState(false);
 
     useEffect(() => {
         authenticatedRequest(`${API}/stores/${STORE_ID}/manage`)
-            .then((response) => response.json())
-            .then((result) => {
-                if (result.data) {
-                    setStore((previous) => ({
-                        ...previous,
-                        ...result.data,
-                        is_active: Boolean(result.data.is_active)
-                    }));
-                }
+            .then(async (response) => {
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.message || 'Unable to load store details.');
+                if (result.data) setStore(previous => ({ ...previous, ...result.data, is_active: Boolean(result.data.is_active) }));
             })
-            .catch(() => setMessage('Unable to load store details.'))
+            .catch(error => setMessage(error.message || 'Unable to load store details.'))
             .finally(() => setLoading(false));
     }, []);
 
     function handleChange(event) {
         const { name, value, checked, type } = event.target;
-
-        setStore((previous) => ({
-            ...previous,
-            [name]: type === 'checkbox' ? checked : value
-        }));
+        setStore(previous => ({ ...previous, [name]: type === 'checkbox' ? checked : value }));
     }
 
     async function handleSubmit(event) {
         event.preventDefault();
         setMessage('Saving changes...');
-
         try {
             const response = await authenticatedRequest(`${API}/stores/${STORE_ID}`, {
                 method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Accept: 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
                 body: JSON.stringify(store)
             });
-
             const result = await response.json();
-
             if (!response.ok) {
-                throw new Error(
-                    result.message || 'Unable to update store.'
-                );
+                const validationMessage = result.errors ? Object.values(result.errors).flat().join(' ') : result.message;
+                throw new Error(validationMessage || 'Unable to update store.');
             }
-
             setMessage('Store details updated successfully!');
         } catch (error) {
             setMessage(error.message);
         }
     }
 
-    if (loading) {
-        return <p>Loading store details...</p>;
+    async function handleImageUpload(event) {
+        event.preventDefault();
+        if (!logoFile && !bannerFile) {
+            setMessage('Select a logo or banner image first.');
+            return;
+        }
+        const formData = new FormData();
+        if (logoFile) formData.append('logo', logoFile);
+        if (bannerFile) formData.append('banner', bannerFile);
+        setUploadingImages(true);
+        setMessage('Uploading store images...');
+        try {
+            const response = await authenticatedRequest(`${API}/stores/${STORE_ID}/images`, {
+                method: 'POST', body: formData
+            });
+            const result = await response.json();
+            if (!response.ok) {
+                const validationMessage = result.errors ? Object.values(result.errors).flat().join(' ') : result.message;
+                throw new Error(validationMessage || 'Store image upload failed.');
+            }
+            setStore(previous => ({ ...previous, logo: result.data?.logo || previous.logo, banner: result.data?.banner || previous.banner }));
+            setLogoFile(null);
+            setBannerFile(null);
+            setMessage('Store branding images uploaded successfully!');
+        } catch (error) {
+            setMessage(error.message || 'Store image upload failed.');
+        } finally {
+            setUploadingImages(false);
+        }
     }
 
+    function imageUrl(path) {
+        if (!path) return '';
+        if (path.startsWith('http://') || path.startsWith('https://')) return path;
+        return `/storage/${path.replace(/^\/+/, '')}`;
+    }
+
+    if (loading) return <p>Loading store details...</p>;
+
     const fields = [
-        ['business_name', 'Business Name'],
-        ['store_name', 'Store Name'],
-        ['owner_name', 'Owner Name'],
-        ['email', 'Email'],
-        ['phone', 'Phone'],
-        ['whatsapp_number', 'WhatsApp Number'],
-        ['business_state', 'Business State']
+        ['business_name', 'Business Name'], ['store_name', 'Store Name'],
+        ['owner_name', 'Owner Name'], ['email', 'Email'], ['phone', 'Phone'],
+        ['whatsapp_number', 'WhatsApp Number'], ['business_state', 'Business State']
     ];
 
     return (
         <section className="placeholder-card">
             <h2>Store Details</h2>
-
-            {message && <p>{message}</p>}
-
+            {message && <p role="status" style={{ marginBottom: '15px' }}>{message}</p>}
             <form onSubmit={handleSubmit}>
                 {fields.map(([name, label]) => (
                     <div className="form-group" key={name}>
                         <label>{label}</label>
-                        <input
-                            type={name === 'email' ? 'email' : 'text'}
-                            name={name}
-                            value={store[name] || ''}
-                            onChange={handleChange}
-                            required={[
-                                'business_name',
-                                'store_name',
-                                'owner_name',
-                                'email'
-                            ].includes(name)}
-                        />
+                        <input type={name === 'email' ? 'email' : 'text'} name={name}
+                            value={store[name] || ''} onChange={handleChange}
+                            required={['business_name', 'store_name', 'owner_name', 'email'].includes(name)} />
                     </div>
                 ))}
-
                 <div className="form-group">
                     <label>Business Address</label>
-                    <textarea
-                        name="business_address"
-                        value={store.business_address || ''}
-                        onChange={handleChange}
-                    />
+                    <textarea name="business_address" value={store.business_address || ''} onChange={handleChange} />
                 </div>
-
                 <div className="form-group">
                     <label>Description</label>
-                    <textarea
-                        name="description"
-                        value={store.description || ''}
-                        onChange={handleChange}
-                    />
+                    <textarea name="description" value={store.description || ''} onChange={handleChange} />
                 </div>
-
-                <label>
-                    <input
-                        type="checkbox"
-                        name="is_active"
-                        checked={store.is_active}
-                        onChange={handleChange}
-                    />
-                    {' '}Enable Store
-                </label>
-
+                <label><input type="checkbox" name="is_active" checked={store.is_active} onChange={handleChange} />{' '}Enable Store</label>
                 <br /><br />
+                <button type="submit" className="primary-button">Save Changes</button>
+            </form>
 
-                <button type="submit" className="primary-button">
-                    Save Changes
+            <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #e5e8ee' }} />
+            <h2>Store Branding</h2>
+            <p>Upload the logo and banner displayed on your public storefront.</p>
+            <form onSubmit={handleImageUpload}>
+                <div className="form-group">
+                    <label>Store Logo (JPG, PNG, WebP — maximum 2 MB)</label>
+                    <input type="file" accept="image/jpeg,image/png,image/webp" onChange={event => setLogoFile(event.target.files?.[0] || null)} />
+                    {(logoFile || store.logo) && <img src={logoFile ? URL.createObjectURL(logoFile) : imageUrl(store.logo)} alt="Store logo preview" style={{ display: 'block', width: '110px', height: '110px', objectFit: 'cover', marginTop: '10px', borderRadius: '8px' }} />}
+                </div>
+                <div className="form-group">
+                    <label>Store Banner (JPG, PNG, WebP — maximum 5 MB)</label>
+                    <input type="file" accept="image/jpeg,image/png,image/webp" onChange={event => setBannerFile(event.target.files?.[0] || null)} />
+                    {(bannerFile || store.banner) && <img src={bannerFile ? URL.createObjectURL(bannerFile) : imageUrl(store.banner)} alt="Store banner preview" style={{ display: 'block', width: '100%', maxHeight: '180px', objectFit: 'cover', marginTop: '10px', borderRadius: '8px' }} />}
+                </div>
+                <button type="submit" className="primary-button" disabled={uploadingImages}>
+                    {uploadingImages ? 'Uploading...' : 'Upload Logo & Banner'}
                 </button>
             </form>
         </section>
